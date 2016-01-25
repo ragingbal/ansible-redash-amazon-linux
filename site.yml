@@ -1,0 +1,65 @@
+---
+- name: configure redash
+  hosts: all
+  become: true
+  tasks:
+    - name: upgrade pip
+      shell: bash -lc 'pip install --upgrade pip'
+      environment:
+        PATH: /usr/local/bin:{{ ansible_env.PATH }}
+    - name: get redash
+      get_url: url=https://github.com/wapa5pow/redash/archive/master.zip dest=/tmp/master.zip
+    - name: unarchive redash
+      unarchive: src=/tmp/master.zip dest=/tmp copy=no
+    - name: install redash
+      shell: bash -lc 'bash bootstrap.sh'
+      args:
+        chdir: /tmp/redash-master/setup/amazon_linux
+      environment:
+        PATH: /usr/local/bin:{{ ansible_env.PATH }}
+
+- name: configure and deploy the database
+  hosts: all
+  become: true
+  roles:
+    - role: geerlingguy.mysql
+      mysql_root_username: root
+      mysql_root_password: root
+      mysql_root_password_update: yes
+      mysql_enablerepo: epel
+      mysql_packages:
+        - mysql56
+        - mysql56-devel
+        - mysql56-server
+        - MySQL-python
+      mysql_slow_query_log_enabled: yes
+      mysql_slow_query_time: 1
+      mysql_databases:
+        - name: analytics
+          collation: utf8_general_ci
+          encoding: utf8
+      mysql_users:
+        - name: analytics
+          host: 127.0.0.1
+          password: analytics
+          priv: "*.*:ALL"
+
+- name: import sample dataset
+  hosts: all
+  become: true
+  become_user: ec2-user
+  tasks:
+    - name: get world dataset
+      get_url: url=http://downloads.mysql.com/docs/world.sql.gz dest=/tmp/world.sql.gz
+    - name: unarchive world dataset
+      shell: gunzip /tmp/world.sql.gz -f
+    - name: import world dataset
+      shell: cat /tmp/world.sql | mysql -uanalytics -panalytics -h127.0.0.1
+    - name: get sakila dataset
+      get_url: url=http://downloads.mysql.com/docs/sakila-db.zip dest=/tmp/sakila-db.zip
+    - name: unarchive sakila dataset
+      unarchive: src=/tmp/sakila-db.zip dest=/tmp copy=no
+    - name: import world dataset
+      shell: cat sakila-schema.sql sakila-data.sql | mysql -uanalytics -panalytics -h127.0.0.1
+      args:
+        chdir: /tmp/sakila-db
